@@ -1,16 +1,74 @@
-# Does a 1×10⁻¹⁵ @ 1 s chip-scale atomic clock matter, and where?
+# Does a 1×10⁻¹⁵ chip-scale atomic clock matter, and where?
 
-Technical-validation simulation for the TVA Labs submission to the NextSEMI Hackathon (SEMICON Europa × TUM Venture Labs, Munich, 10–12 Nov 2026), imec ventures challenge *"Build the next timing unicorn"*.
+**A reproducible simulation that turns clock noise into application results: radar image blur, network coherence, positioning error, Doppler error. It shows where a 10⁻¹⁵ @ 1 s clock is decisive, and where it is not.**
 
-**The challenge assumption.** A chip-scale atomic clock (CSAC) with every published spec of the Microchip SA65 (17 cm³, 120 mW, ±3×10⁻¹⁰ over −40…+80 °C, ageing 3×10⁻¹¹/day) **except** short-term stability, which is assumed to be **ADEV < 1×10⁻¹⁵ at τ = 1 s** (the SA65 is 3×10⁻¹⁰).
+![python](https://img.shields.io/badge/python-3.11%2B-blue) ![deps](https://img.shields.io/badge/deps-numpy%20%7C%20matplotlib-lightgrey) ![runtime](https://img.shields.io/badge/runtime-~25%20s-brightgreen) ![checks](https://img.shields.io/badge/self--checks-18%2F18-brightgreen) ![license](https://img.shields.io/badge/license-MIT-informational)
 
-**The question this code answers.** For which applications does that one number change what is physically possible, and for which does it not (because another noise source, or a cheaper clock, already suffices)?
-
-Everything here is Python (NumPy + Matplotlib). One command regenerates every number and figure in about 25 seconds, and a self-check compares the headline numbers with this README.
+Technical-validation repository for the TVA Labs submission, NextSEMI Hackathon (SEMICON Europa × TUM Venture Labs, Munich, 10–12 Nov 2026), imec ventures challenge *"Build the next timing unicorn"*.
 
 ---
 
-## 1. Result in one table
+## At a glance
+
+| | |
+|---|---|
+| **The assumption** | A chip-scale atomic clock with every published spec of the Microchip SA65 (17 cm³, 120 mW, ±3×10⁻¹⁰ over temperature, ageing 3×10⁻¹¹/day) **except** short-term stability: **ADEV < 1×10⁻¹⁵ at 1 s** instead of 3×10⁻¹⁰. |
+| **The question** | For which applications does that single number change what is physically possible, and for which does something else (another noise source, or a cheaper clock) already limit the result? |
+| **The method** | Generate realistic clock noise, run two *independent* clocks that are synchronised once, and measure how much phase error builds up. Convert that into application metrics. The noise generator is validated against its targets, and the model reproduces a measured JPL result (§5). |
+| **The short answer** | **Yes, in a narrow but real place:** high carrier frequency × long window × no shared reference. **No** for one-way Doppler tracking, low-frequency links, or ranging-limited positioning. The advantage over quartz survives the unknown noise above 1 s, up to about 10× the spec (§7). |
+| **Check it yourself** | `./run_all.sh`: about 25 s, regenerates every number and figure, then runs 18 self-checks against this README (see [Run it](#run-it-in-3-commands)). |
+
+### The result in one picture
+
+![Radar image of a point target at 300 GHz, 60 s aperture, two nodes with no shared reference](out/P1_beachhead_image_blur.png)
+
+*Two radar nodes at 300 GHz with **no cable and no shared reference**, one sync at the start, a 60 s virtual aperture. The challenge chip (green) sits exactly on the ideal image (black). The best quartz oscillator we modelled (orange, "HSO") blurs the image by 4.3 dB and raises the sidelobes; a lab rubidium clock (blue) destroys it. Source: `poc_phases.py`, output `out/P1_beachhead_image_blur.csv/.png`.*
+
+### Three findings
+
+| ✅ Where the clock **is** the limit | ⚠️ Where it is **not** | ❓ The biggest uncertainty |
+|---|---|---|
+| 140–300 GHz coherent measurement and links | One-way deep-space Doppler: needs only 3.3×10⁻¹³, a space-grade quartz clock (USO) suffices | The challenge gives ADEV at 1 s only. Behaviour above 1 s is **our parameterisation**, swept in §7 |
+| Ka-band distributed SAR (GNSS sync alone leaves 6.6°) | Indoor positioning with 100 MHz-class ranging: ranging noise dominates, sync beyond 1 ns barely helps | Worst spec-consistent case: 300 GHz coherence time falls from 31.6 s to 21.5 s. A floor 10× the spec: 6.8 s. 100×: advantage gone |
+| Radar networks whose sync link can be jammed or cut | At 300 GHz, antenna-position (10–50 µm) and cable drift are as large as the chip's own clock error | Thermal compensation is an engineering must: without it coherence drops 10× |
+| Needs ADEV between 1.8×10⁻¹⁵ and 1.6×10⁻¹⁴, depending on the application (§1) | At 150 GHz with a 10 s aperture even quartz loses only 0.04 dB | |
+
+### Headline numbers (all simulated)
+
+| Two independent clocks, synchronised once at t = 0 | **Challenge chip** | Best quartz (HSO) | Rubidium |
+|---|---|---|---|
+| Time they stay within 10° at 300 GHz | **31.6 s** | 1 s | < 0.1 s |
+| Radar image peak loss, 300 GHz, 60 s | **−0.01 dB** | −4.3 dB | −18 dB |
+| 16-node radar, sync cut: outage tolerated at X-band | **100 s** | 30 s | < 0.1 s |
+| Same at W-band | **30 s** | 3 s | < 0.1 s |
+
+The full table, the minimum-clock requirements per application, and the cases where the clock does not matter are in [§1](#1-results-in-detail).
+
+### Run it in 3 commands
+
+```bash
+git clone https://github.com/emachiamu/simulation-nextsemi-2026.git && cd simulation-nextsemi-2026
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+PYTHON=.venv/bin/python ./run_all.sh
+```
+
+Expected last line: `18/18 checks passed`. No network access, GPU or data download needed. The results are also already committed in [`out/`](out/), so you can read them without running anything.
+
+### How to read this README
+
+| If you have | Read |
+|---|---|
+| 2 minutes | This page (everything above this line) |
+| 10 minutes | [§1 Results in detail](#1-results-in-detail), [§7 What would change the conclusion](#7-what-would-change-the-conclusion), [§8 Limitations](#8-limitations-read-before-relying-on-a-number) |
+| To audit | [§3 Repo map](#3-what-is-in-the-repo), [§4 How it works](#4-how-it-works), [§5 Validation](#5-validation), [§6 Inputs by provenance](#6-inputs-by-provenance) |
+
+**Contents:** 1 Results in detail · 2 Run details · 3 Repo map · 4 How it works · 5 Validation · 6 Inputs by provenance · 7 What would change the conclusion · 8 Limitations · 9 Context and licence
+
+**Tags used throughout:** `[SIM]` simulated output · `[CHAL]` given by the challenge · `[SRC]` public source · `[ASM]` our assumption · `[INT]` interview.
+
+---
+
+## 1. Results in detail
 
 All values are simulation outputs (`[SIM]`) under the assumptions in §6. "Chip" is the challenge clock. "HSO" is the best quartz oscillator we modelled (6×10⁻¹⁴ @ 1 s). "Rb" is a lab rubidium reference (2×10⁻¹¹ @ 1 s). Two independent, free-running clocks are synchronised once at t = 0, then left alone.
 
@@ -48,18 +106,11 @@ The requirements for the first six rows lie within a factor of about 2–16 of t
 
 ---
 
-## 2. Run it yourself
+## 2. Run details
 
-Requirements: Python ≥ 3.11 (tested on 3.12; developed on 3.14), NumPy ≥ 2.0, Matplotlib ≥ 3.8. No network, GPU, or data download needed.
+Requirements: Python ≥ 3.11 (tested on 3.12; developed on 3.14), NumPy ≥ 2.0, Matplotlib ≥ 3.8. The 3-command quick start is at the top of this page.
 
-```bash
-git clone https://github.com/emachiamu/simulation-nextsemi-2026.git && cd simulation-nextsemi-2026
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-PYTHON=.venv/bin/python ./run_all.sh
-```
-
-`run_all.sh` runs every script (≈ 25 s in total on a laptop), rewrites everything in `out/`, and ends with `check_results.py`, which prints 18 `OK`/`FAIL` lines comparing the headline numbers with this README and exits non-zero if any is off. Expected last line: `18/18 checks passed`.
+`run_all.sh` runs every script (≈ 25 s in total on a laptop), rewrites everything in `out/`, and ends with `check_results.py`, which prints 18 `OK`/`FAIL` lines comparing the headline numbers with this README and exits non-zero if any is off.
 
 Run one script alone with `.venv/bin/python scenarios.py` (**from the repo root**: scripts write to `./out/`). The committed `out/` already contains the results, so you can read them without running anything.
 
