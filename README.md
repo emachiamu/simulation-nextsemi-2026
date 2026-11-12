@@ -53,7 +53,7 @@ The requirements for the first six rows lie within a factor of about 2–16 of t
 Requirements: Python ≥ 3.11 (tested on 3.12; developed on 3.14), NumPy ≥ 2.0, Matplotlib ≥ 3.8. No network, GPU, or data download needed.
 
 ```bash
-git clone <this repo> && cd tva-labs-coherence-sim
+git clone <this repo> && cd simulation-nextsemi-2026
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 PYTHON=.venv/bin/python ./run_all.sh
